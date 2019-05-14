@@ -1,8 +1,9 @@
 /*
  * Manipulate or parse headers.
  */
-const isStaticAsset = /.*\.(js|jpe?g|css|png|svg|woff2?|eot|ttf|otf)/;
+const cspKeyScriptSrc = 'script-src';
 const isIE8 = /MSIE\s*8/i;
+const isStaticAsset = /\.(js|jpe?g|css|png|svg|woff2?|eot|ttf|otf)(\?.*)?$/i;
 const oneDay = 86400000;
 
 /**
@@ -24,6 +25,48 @@ module.exports = function mwHeaders(app, cspConfig, disabledHeadersConfig) {
   const csp = cspConfig || {};
   const disabledHeaders = disabledHeadersConfig || [];
 
+  // Default headers to set on all responses
+  const headers = {
+    // Cross-site protections
+    'X-Content-Type-Options': 'nosniff',
+    'X-XSS-Protection': '1; mode=block',
+    'X-Frame-Options': 'DENY',
+    // Caching policy
+    'Cache-Control': 'no-cache, no-store, must-revalidate, private',
+    Pragma: 'no-cache',
+    Expires: 0,
+  };
+
+  // Use Content-Security-Policy directives from config or set empty default
+  let cspDirectives = Object.getOwnPropertyNames(csp).length > 0 ? csp : {
+    [cspKeyScriptSrc]: [],
+  };
+
+  // If config object does not contain a script-src property, set emtpty default
+  if (!Object.prototype.hasOwnProperty.call(cspDirectives, cspKeyScriptSrc)) {
+    cspDirectives[cspKeyScriptSrc] = [];
+  }
+
+  // CASA requires these script-src entries to be included in the CSP
+  const requiredScriptSources = [
+    '\'self\'',
+    // hash of inline GOV.UK template JS to add 'js-enabled' body class
+    '\'sha256-+6WnXIl4mbFTCARd8N3COQmT3bJJmo32N8q8ZSQAIcU=\'',
+    'https://www.google-analytics.com/',
+    'https://www.googletagmanager.com/',
+  ];
+
+  // Add required script sources to CSP directives object
+  requiredScriptSources.forEach((source) => {
+    if (!cspDirectives[cspKeyScriptSrc].includes(source)) {
+      cspDirectives[cspKeyScriptSrc].push(source);
+    }
+  });
+
+  // Compile the CSP and add to default headers
+  cspDirectives = Object.keys(cspDirectives).map(directive => `${directive} ${cspDirectives[directive].join(' ')}`);
+  headers['Content-Security-Policy'] = cspDirectives.join('; ');
+
   /**
    * Define some common headers for all requests.
    * Remove security-sensitive headers that may otherwise reveal information.
@@ -34,65 +77,25 @@ module.exports = function mwHeaders(app, cspConfig, disabledHeadersConfig) {
    * @returns {void}
    */
   const handleHeaders = (req, res, next) => {
-    // Cross-site protections
-    const headers = {
-      'X-Content-Type-Options': 'nosniff',
-      'X-XSS-Protection': '1; mode=block',
-      'X-Frame-Options': 'DENY',
-    };
-
     // X-XSS-Protection introduces a security bug into IE8, so disable it if IE8
     if (isIE8.test(req.headers['user-agent'])) {
       headers['X-XSS-Protection'] = '0';
     }
 
-    // Caching policy
     // Cache static assets more agressively
     if (isStaticAsset.test(req.url)) {
       headers['Cache-Control'] = 'public';
       headers.Pragma = 'cache';
       headers.Expires = new Date(Date.now() + oneDay).toUTCString();
-    } else {
-      headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, private';
-      headers.Pragma = 'no-cache';
-      headers.Expires = 0;
     }
-
-    // Content-Security-Policy directives
-    const cspKeyScriptSrc = 'script-src';
-    let cspDirectives = Object.getOwnPropertyNames(csp).length > 0 ? csp : {
-      [cspKeyScriptSrc]: [],
-    };
-
-    // CASA requires these script-src entries to be included in the CSP
-    const requiredScriptSources = [
-      '\'self\'',
-      // hash of inline GOV.UK template JS to add 'js-enabled' body class
-      '\'sha256-+6WnXIl4mbFTCARd8N3COQmT3bJJmo32N8q8ZSQAIcU=\'',
-      'https://www.google-analytics.com/',
-      'https://www.googletagmanager.com/',
-    ];
-
-    if (!Object.prototype.hasOwnProperty.call(cspDirectives, cspKeyScriptSrc)) {
-      cspDirectives[cspKeyScriptSrc] = [];
-    }
-
-    requiredScriptSources.forEach((source) => {
-      if (cspDirectives[cspKeyScriptSrc].indexOf(source) === -1) {
-        cspDirectives[cspKeyScriptSrc].push(source);
-      }
-    });
-
-    // Compile the CSP
-    cspDirectives = Object.keys(cspDirectives).map(directive => `${directive} ${cspDirectives[directive].join(' ')}`);
-    headers['Content-Security-Policy'] = cspDirectives.join('; ');
 
     // Write headers
-    Object.keys(headers).forEach((k) => {
-      if (disabledHeaders.indexOf(k) === -1) {
-        res.setHeader(k, headers[k]);
+    const headerNames = Object.keys(headers);
+    for (let i = 0, l = headerNames.length; i < l; i++) {
+      if (!disabledHeaders.includes(headerNames[i])) {
+        res.setHeader(headerNames[i], headers[headerNames[i]]);
       }
-    });
+    }
 
     next();
   };
