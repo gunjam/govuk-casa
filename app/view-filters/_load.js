@@ -1,12 +1,13 @@
-/* eslint-disable import/no-dynamic-require,global-require */
 /**
  * This is a convenience script that will attach all filters in this directory
  * to the given Nunjucks environment.
  */
 
-const npath = require('path');
-
-const viewFiltersDir = npath.resolve(__dirname);
+const formatDateObject = require('./formatDateObject');
+const renderAsAttributes = require('./renderAsAttributes');
+const mergeObjects = require('./mergeObjects');
+const mergeObjectsDeep = require('./mergeObjectsDeep');
+const includes = require('./includes');
 
 /**
  * Load filters into the given Nunjucks environment
@@ -15,24 +16,9 @@ const viewFiltersDir = npath.resolve(__dirname);
  * @returns {void}
  */
 module.exports = function loadFilters(env) {
-  env.addFilter(
-    'formatDateObject',
-    require(npath.resolve(viewFiltersDir, 'formatDateObject')),
-  );
-  env.addFilter(
-    'renderAsAttributes',
-    require(npath.resolve(viewFiltersDir, 'renderAsAttributes')),
-  );
-  env.addGlobal(
-    'mergeObjects',
-    require(npath.resolve(viewFiltersDir, 'mergeObjects')),
-  );
-  env.addGlobal(
-    'mergeObjectsDeep',
-    require(npath.resolve(viewFiltersDir, 'mergeObjectsDeep')),
-  );
-  env.addGlobal(
-    'includes',
-    require(npath.resolve(viewFiltersDir, 'includes')),
-  );
+  env.addFilter('formatDateObject', formatDateObject);
+  env.addFilter('renderAsAttributes', renderAsAttributes);
+  env.addGlobal('mergeObjects', mergeObjects);
+  env.addGlobal('mergeObjectsDeep', mergeObjectsDeep);
+  env.addGlobal('includes', includes);
 };
